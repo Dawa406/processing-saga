@@ -1,0 +1,6 @@
+*.pyc
+*.*~
+*~
+*.diff
+*.log*
+__pycache__
