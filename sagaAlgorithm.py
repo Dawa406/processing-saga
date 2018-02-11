@@ -128,7 +128,28 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
                 line = lines.readline().strip("\n").strip()
 
     def checkParameterValues(self, parameters, context):
-        # TODO: check for multiband rasters and different extents
+        rasters = []
+        for param in self.parameterDefinitions():
+            if isinstance(param, QgsProcessingParameterRasterLayer):
+                if parameters[param.name()]:
+                    rasters.append(parameters[param.name()])
+            elif isinstance(param, QgsProcessingParameterMultipleLayers) and param.layerType() == QgsProcessing.TypeRaster:
+                if parameters[param.name()]:
+                    layers.extend(parameters[param.name()])
+
+        dimensions = None
+        for raster in rasters:
+            if raster is None or raster == "":
+                continue
+
+            if raster.bandCount() > 1:
+                return False, self.tr("Input layer {} is a multiband raster.").format(raster.name())
+
+            if dimensions is None:
+                dimensions = [raster.extent(), raster.height(), raster.width()]
+            else:
+                if dimensions != [raster.extent(), raster.height(), raster.width()]:
+                    return False, self.tr("Input layers have different grid extents.")
 
         return super(SagaAlgorithm, self).checkParameterValues(parameters, context)
 
