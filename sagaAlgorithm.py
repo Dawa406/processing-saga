@@ -32,14 +32,17 @@ from qgis.core import (QgsProcessing,
                        QgsProcessingAlgorithm,
                        QgsProcessingParameterEnum,
                        QgsProcessingParameterFile,
+                       QgsProcessingParameterRange,
+                       QgsProcessingParameterExtent,
                        QgsProcessingParameterNumber,
                        QgsProcessingParameterString,
                        QgsProcessingParameterBoolean,
                        QgsProcessingParameterRasterLayer,
                        QgsProcessingParameterMultipleLayers,
-                       QgsProcessingParameterRasterDestination,
                        QgsProcessingParameterFileDestination,
-                       QgsProcessingOutputFile
+                       QgsProcessingParameterFolderDestination,
+                       QgsProcessingParameterRasterDestination,
+                       QgsProcessingParameterVectorDestination
                       )
 from processing.core.parameters import getParameterFromString
 from processing.tools.system import isWindows
@@ -50,6 +53,8 @@ pluginPath = os.path.dirname(__file__)
 
 
 class SagaAlgorithm(QgsProcessingAlgorithm):
+
+    EXTENT = "EXTENT"
 
     def __init__(self, descriptionFile):
         super().__init__()
@@ -62,6 +67,8 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
         self._shortHelp = ""
 
         self.params = []
+
+        self.extentParams = []
 
         self.defineCharacteristicsFromFile()
 
@@ -90,10 +97,40 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
         return QCoreApplication.translate("SagaAlgorithm", text)
 
     def initAlgorithm(self, config=None):
-        pass
+        for p in self.params:
+            self.addParameter(p, True)
+
+            # TODO: file destinations are not automatically added as outputs
 
     def defineCharacteristicsFromFile(self):
-        pass
+        with open(self.descriptionFile) as lines:
+            line = lines.readline().strip("\n").strip()
+            self._name = line
+            self._displayName = line
+
+            line = lines.readline().strip()
+            self._groupId = line
+
+            line = lines.readline().strip()
+            self._group = line
+
+            #line = lines.readline().strip("\n").strip()
+            #self._shortHelp = line
+
+            line = lines.readline().strip()
+            while line != '':
+                if line.startswith("QgsProcessingParameterExtent"):
+                    self.extentParams = line.split("|")[1].split(";")
+                    self.params.append(QgsProcessingParameterExtent(self.EXTENT, "Extent"))
+                else:
+                    self.params.append(getParameterFromString(line))
+
+                line = lines.readline().strip("\n").strip()
+
+    def checkParameterValues(self, parameters, context):
+        # TODO: check for multiband rasters and different extents
+
+        return super(SagaAlgorithm, self).checkParameterValues(parameters, context)
 
     def processAlgorithm(self, parameters, context, feedback):
         pass
