@@ -54,7 +54,7 @@ pluginPath = os.path.dirname(__file__)
 
 class SagaAlgorithm(QgsProcessingAlgorithm):
 
-    EXTENT = "EXTENT"
+    OUTPUT_EXTENT = "OUTPUT_EXTENT"
 
     def __init__(self, descriptionFile):
         super().__init__()
@@ -121,7 +121,7 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
             while line != '':
                 if line.startswith("QgsProcessingParameterExtent"):
                     self.extentParams = line.split("|")[1].split(";")
-                    self.params.append(QgsProcessingParameterExtent(self.EXTENT, "Extent"))
+                    self.params.append(QgsProcessingParameterExtent(self.OUTPUT_EXTENT, "Extent"))
                 else:
                     self.params.append(getParameterFromString(line))
 

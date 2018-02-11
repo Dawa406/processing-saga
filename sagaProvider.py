@@ -47,7 +47,7 @@ class SagaProvider(QgsProcessingProvider):
         self.algs = []
 
     def id(self):
-        return "saga"
+        return "sagagis"
 
     def name(self):
         return "SAGA GIS"
