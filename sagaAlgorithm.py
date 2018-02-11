@@ -26,9 +26,11 @@ __copyright__ = '(C) 2018, Alexander Bruy'
 __revision__ = '$Format:%H$'
 
 import os
+import re
 
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (QgsProcessing,
+                       QgsProcessingUtils,
                        QgsProcessingAlgorithm,
                        QgsProcessingParameterEnum,
                        QgsProcessingParameterFile,
@@ -44,12 +46,15 @@ from qgis.core import (QgsProcessing,
                        QgsProcessingParameterRasterDestination,
                        QgsProcessingParameterVectorDestination
                       )
+from processing.core.ProcessingConfig import ProcessingConfig
 from processing.core.parameters import getParameterFromString
-from processing.tools.system import isWindows
 
 from processing_saga import sagaUtils
 
 pluginPath = os.path.dirname(__file__)
+
+sessionRasters = dict()
+validChars = re.compile(r"[^A-Za-z0-9]+")
 
 
 class SagaAlgorithm(QgsProcessingAlgorithm):
@@ -68,6 +73,7 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
 
         self.params = []
 
+        self.rasters = []
         self.extentParams = []
 
         self.defineCharacteristicsFromFile()
@@ -104,7 +110,7 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
 
     def defineCharacteristicsFromFile(self):
         with open(self.descriptionFile) as lines:
-            line = lines.readline().strip("\n").strip()
+            line = lines.readline().strip()
             self._name = line
             self._displayName = line
 
@@ -152,6 +158,32 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
                     return False, self.tr("Input layers have different grid extents.")
 
         return super(SagaAlgorithm, self).checkParameterValues(parameters, context)
+
+    def exportRaster(self, parameters, name, context):
+        layer = self.parameterAsRasterLayer(parameters, name, context)
+
+        global sessionRasters
+        if layer.source() in sessionRasters:
+            exported = sessionRasters[layer.source()]
+            if os.path.exists(exported):
+                self.rasters[name] = exported
+                return None
+            else:
+                del sessionRasters[layer.source()]
+
+        rasterName = os.path.splitext(os.path.basename(layer.source()))[0]
+        rasterName = validChars.sub(fileName, "")
+        if rasterName == "":
+            rasterName = "raster"
+
+        fileName = QgsProcessingUtils.generateTempFilename("{}.sgrd".format(rasterName))
+        sessionRasters[layer.source()] = fileName
+        self.rasters[name] = fileName
+
+        cmd = self.provider().exportCommand
+        resampling = ProcessingConfig.getSetting(sagaUtils.SAGA_RESAMPLING)
+
+        return cmd.format(resampling, filename, layer.source())
 
     def processAlgorithm(self, parameters, context, feedback):
         pass

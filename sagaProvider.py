@@ -44,7 +44,9 @@ class SagaProvider(QgsProcessingProvider):
 
     def __init__(self):
         super().__init__()
+
         self.algs = []
+        self.exportCommand = ""
 
     def id(self):
         return "sagagis"
@@ -60,6 +62,13 @@ class SagaProvider(QgsProcessingProvider):
         return QIcon(os.path.join(pluginPath, "icons", "saga.svg"))
 
     def load(self):
+        resamplingMethods = []
+        with open(os.path.join(pluginPath, "iosettings.txt")) as f:
+            line = f.readline().strip()
+            resamplingMethods = line.split(";")
+
+            self.exportCommand = f.readline().strip()
+
         ProcessingConfig.settingIcons[self.name()] = self.icon()
         ProcessingConfig.addSetting(Setting(self.name(),
                                             sagaUtils.SAGA_ACTIVE,
@@ -70,6 +79,12 @@ class SagaProvider(QgsProcessingProvider):
                                             self.tr("SAGA executable"),
                                             sagaUtils.sagaExecutable(),
                                             valuetype=Setting.FILE))
+        ProcessingConfig.addSetting(Setting(self.name(),
+                                            sagaUtils.SAGA_RESAMPLING,
+                                            self.tr("Resampling method"),
+                                            resamplingMethods[0],
+                                            valuetype=Setting.SELECTION,
+                                            options=resamplingMethods))
         ProcessingConfig.addSetting(Setting(self.name(),
                                             sagaUtils.SAGA_VERBOSE,
                                             self.tr("Log commands output"),
