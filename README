@@ -1,0 +1,14 @@
+SAGA for Processing
+-------------------
+SAGA (System for Automated Geoscientific Analyses) is intended to give
+scientists an effective but easily learnable platform for implementing
+geoscientific methods. This is achieved by the application programming
+interface (API). SAGA has a fast-growing set of geoscientific methods,
+bundled in exchangeable module libraries.
+
+Processing is a geoprocessing environment that can be used to call native
+and third party algorithms from QGIS, making your spatial analysis tasks
+more productive and easy to accomplish.
+
+This plugin implements SAGA GIS provider for QGIS Processing framework.
+Based on SAGA GIS 2.3.1.

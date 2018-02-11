@@ -1,0 +1,20 @@
+[general]
+name=SAGA for Processing
+description=Various geoscientific methods for processing raster and vector data
+about=SAGA (System for Automated Geoscientific Analyses) is a platform for implementing geoscientific methods.
+category=Plugins
+version=0.1.0
+qgisMinimumVersion=3.0
+
+icon=icons/saga.svg
+tags=analysis,processing,raster,lidar,vector
+
+author=Alexander Bruy
+email=alexander.bruy@gmail.com
+
+homepage=https://github.com/alexbruy/processing-saga
+tracker=https://github.com/alexbruy/processing-saga/issues
+repository=https://github.com/alexbruy/processing-saga
+
+experimental=True
+deprecated=False
