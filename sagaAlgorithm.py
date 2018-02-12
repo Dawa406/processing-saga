@@ -39,6 +39,8 @@ from qgis.core import (QgsProcessing,
                        QgsProcessingParameterNumber,
                        QgsProcessingParameterString,
                        QgsProcessingParameterBoolean,
+                       QgsProcessingParameterMatrix,
+                       QgsProcessingParameterFeatureSource,
                        QgsProcessingParameterRasterLayer,
                        QgsProcessingParameterMultipleLayers,
                        QgsProcessingParameterFileDestination,
@@ -53,7 +55,7 @@ from processing_saga import sagaUtils
 
 pluginPath = os.path.dirname(__file__)
 
-sessionRasters = dict()
+sessionLayers = dict()
 validChars = re.compile(r"[^A-Za-z0-9]+")
 
 
@@ -73,7 +75,7 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
 
         self.params = []
 
-        self.rasters = []
+        self.layers = {}
         self.extentParams = []
 
         self.defineCharacteristicsFromFile()
@@ -126,7 +128,13 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
             line = lines.readline().strip()
             while line != '':
                 if line.startswith("QgsProcessingParameterExtent"):
-                    self.extentParams = line.split("|")[1].split(";")
+                    paramNames = line.split("|")[1].split(";")
+                    if len(paramNames) == 4:
+                        self.extentParams = paramNames
+                    else:
+                        for name in paramNames:
+                            self.extentParams.append("{}_MIN".format(name))
+                            self.extentParams.append("{}_MAX".format(name))
                     self.params.append(QgsProcessingParameterExtent(self.OUTPUT_EXTENT, "Extent"))
                 else:
                     self.params.append(getParameterFromString(line))
@@ -149,7 +157,7 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
                 continue
 
             if raster.bandCount() > 1:
-                return False, self.tr("Input layer {} is a multiband raster.").format(raster.name())
+                return False, self.tr("Input layer '{}' is a multiband raster.").format(raster.name())
 
             if dimensions is None:
                 dimensions = [raster.extent(), raster.height(), raster.width()]
@@ -159,31 +167,157 @@ class SagaAlgorithm(QgsProcessingAlgorithm):
 
         return super(SagaAlgorithm, self).checkParameterValues(parameters, context)
 
-    def exportRaster(self, parameters, name, context):
-        layer = self.parameterAsRasterLayer(parameters, name, context)
-
-        global sessionRasters
-        if layer.source() in sessionRasters:
-            exported = sessionRasters[layer.source()]
+    def exportRaster(self, name, layer):
+        global sessionLayers
+        if layer.source() in sessionLayers:
+            exported = sessionLayers[layer.source()]
             if os.path.exists(exported):
-                self.rasters[name] = exported
+                self.layers[name] = exported
                 return None
             else:
-                del sessionRasters[layer.source()]
+                del sessionLayers[layer.source()]
 
         rasterName = os.path.splitext(os.path.basename(layer.source()))[0]
-        rasterName = validChars.sub(fileName, "")
+        rasterName = validChars.sub(rasterName, "")
         if rasterName == "":
-            rasterName = "raster"
+            rasterName = "exported"
 
         fileName = QgsProcessingUtils.generateTempFilename("{}.sgrd".format(rasterName))
-        sessionRasters[layer.source()] = fileName
-        self.rasters[name] = fileName
+        sessionLayers[layer.source()] = fileName
+        self.layers[name] = fileName
 
         cmd = self.provider().exportCommand
         resampling = ProcessingConfig.getSetting(sagaUtils.SAGA_RESAMPLING)
 
-        return cmd.format(resampling, filename, layer.source())
+        return cmd.format(resampling, fileName, layer.source())
+
+    def convertLayers(self, parameters, context, feedback):
+        commands = []
+
+        for param in self.parameterDefinitions():
+            if param.name() not in parameters or parameters[param.name()] is None:
+                continue
+
+            if isinstance(param, QgsProcessingParameterRasterLayer):
+                layer = self.parameterAsRasterLayer(parameters, param.name(), context)
+
+                if layer.source().lower().endswith("sdat"):
+                    self.layers[param.name()] = "{}.sgrd".format(os.path.splitext(layer.source())[0])
+                elif layer.source().lower().endswith("sgrd"):
+                    self.layers[param.name()] = layer.source()
+                else:
+                    exportCommand = self.exportRaster(param.name(), layer)
+                    if exportCommand is not None:
+                        commands.append(exportCommand)
+            elif isinstance(param, QgsProcessingParameterFeatureSource):
+                filePath = self.parameterAsCompatibleSourceLayerPath(parameters, param.name(), context, ["shp"], "shp", feedback=feedback)
+                if filePath:
+                    self.layers[param.name()] = filePath
+                else:
+                    raise QgsProcessingException(self.tr("Input layer '{}' has unsupported format.".format(param.name())))
+            elif isinstance(param, QgsProcessingParameterMultipleLayers):
+                layers = self.parameterAsLayerList(parameters, param.name(), context)
+                if layers is None or len(layers) == 0:
+                    continue
+
+                files = []
+                if param.layerType() == QgsProcessing.TypeRaster:
+                    for layer in layers:
+                        if layer.source().lower().endswith("sdat"):
+                            files.append("{}.sgrd".format(os.path.splitext(layer.source())[0]))
+                        elif layer.source().lower().endswith("sgrd"):
+                            files.append(layer.source())
+                        else:
+                            exportCommand = self.exportRaster(param.name(), layer)
+                            files.append(self.layers[param.name()])
+                            if exportCommand is not None:
+                                commands.append(exportCommand)
+                elif param.layerType() != QgsProcessing.TypeFile:
+                    temp_params = deepcopy(parameters)
+                    for layer in layers:
+                        temp_params[param.name()] = layer
+
+                        filePath = self.parameterAsCompatibleSourceLayerPath(temp_params, param.name(), context, ["shp"], "shp", feedback=feedback)
+                        if filePath:
+                            files.append(filePath)
+                        else:
+                            raise QgsProcessingException(self.tr("Input layer '{}' has unsupported format.".format(param.name())))
+                self.layers[param.name()] = files
+
+        return commands
 
     def processAlgorithm(self, parameters, context, feedback):
-        pass
+        exportCommands = self.convertLayers(parameters, context, feedback)
+
+        arguments = []
+        for param in self.parameterDefinitions():
+            if not param.name() in parameters or parameters[param.name()] is None:
+                continue
+
+            if param.isDestination():
+                continue
+
+            if isinstance(param, (QgsProcessingParameterRasterLayer, QgsProcessingParameterFeatureSource)):
+                arguments.append("-{} '{}'".format(param.name(), self.layers[param.name()]))
+            elif isinstance(param, QgsProcessingParameterMultipleLayers):
+                arguments.append("-{} '{}'".format(param.name(), ";".join(self.layers[param.name()])))
+            elif isinstance(param, QgsProcessingParameterMatrix):
+                cols = len(param.headers())
+                tableFile = QgsProcessingUtils.generateTempFilename("table.txt")
+                with open(tableFile, "w", encoding="utf-8") as f:
+                    f.write("{}\n".format("\t".join(param.headers())))
+
+                    values = self.parameterAsMatrix(parameters, param.name(), context)
+                    for i in range(0, len(values), cols):
+                        f.write("{}\n".format("/t".join(values[i:i + cols])))
+
+                arguments.append("-{} '{}'".format(param.name(), tableFile))
+            elif isinstance(param, QgsProcessingParameterExtent):
+                extent = self.parameterAsExtent(parameters, param.name(), context)
+
+                #FIXME: is adjusting needed?
+                values = [extent.xMinimum(), extent.xMaximum(), extent.yMinimum(), extent.yMaximum()]
+                for k, v in zip(self.extentParams, values):
+                    arguments.append("-{} {}".format(k, v))
+            elif isinstance(param, QgsProcessingParameterRange):
+                values = self.parameterAsRange(parameters, param.name(), context)
+                arguments.append("-{}_MIN {}".format(param.name(), values[0]))
+                arguments.append("-{}_MAX {}".format(param.name(), values[1]))
+            elif isinstance(param, QgsProcessingParameterNumber):
+                value = None
+                if param.dataType() == QgsProcessingParameterNumber.Integer:
+                    value = self.parameterAsInt(parameters, param.name(), context)
+                else:
+                    value = self.parameterAsDouble(parameters, param.name(), context)
+                arguments.append("-{} {}".format(param.name(), value))
+            elif isinstance(param, QgsProcessingParameterBoolean):
+                if self.parameterAsBool(parameters, param.name(), context):
+                    arguments.append("-{} true".format(param.name()))
+                else:
+                    arguments.append("-{} false".format(param.name()))
+            elif isinstance(param, QgsProcessingParameterEnum):
+                arguments.append("-{} {}".format(param.name(), self.parameterAsEnum(parameters, param.name(), context)))
+            else:
+                arguments.append("-{} '{}'".format(param.name(), self.parameterAsString(parameters, param.name(), context)))
+
+        for out in self.destinationParameterDefinitions():
+            if isinstance(out, (QgsProcessingParameterRasterDestination, QgsProcessingParameterVectorDestination)):
+                arguments.append("-{} '{}'".format(out.name(), self.parameterAsOutputLayer(parameters, out.name(), context)))
+            elif isinstance(out, (QgsProcessingParameterFileDestination, QgsProcessingParameterFolderDestination)):
+                arguments.append("-{} '{}'".format(out.name(), self.parameterAsFileOutput(parameters, out.name(), context)))
+            else:
+                arguments.append("-{} '{}'".format(param.name(), self.parameterAsString(parameters, out.name(), context)))
+
+        commands = []
+        commands.extend(exportCommands)
+        commands.append("{} '{}' {}".format(self.groupId(), self.name(), " ".join(arguments)))
+
+        sagaUtils.execute(commands, feedback)
+
+        results = {}
+        for output in self.outputDefinitions():
+            outputName = output.name()
+            if outputName in parameters:
+                results[outputName] = parameters[outputName]
+
+        return results

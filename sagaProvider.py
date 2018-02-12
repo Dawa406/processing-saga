@@ -108,7 +108,7 @@ class SagaProvider(QgsProcessingProvider):
         return "shp"
 
     def defaultRasterFileExtension(self):
-        return "sdat"
+        return "sgrd"
 
     def supportedOutputRasterLayerExtensions(self):
         return ["sgrd"]
