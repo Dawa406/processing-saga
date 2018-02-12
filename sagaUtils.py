@@ -87,7 +87,7 @@ def createJobFile(commands):
     #FIXME: set env variables
     with open(jobFile(), "w", encoding="utf-8") as f:
         for cmd in commands:
-            f.write("saga_cmd {}\n".format(cmd))
+            f.write("saga_cmd -f=q {}\n".format(cmd))
         f.write("exit")
 
 
